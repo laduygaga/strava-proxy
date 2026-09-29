@@ -240,6 +240,18 @@ func NewServer(tokenStore *TokenStore) (*Server, error) {
 			r.Out.Host = targetURL.Host
 
 			reqPath := r.In.URL.Path
+			if fwdURI := r.In.Header.Get("x-forwarded-uri"); fwdURI != "" {
+				if parsed, err := url.Parse(fwdURI); err == nil && parsed.Path != "" && parsed.Path != "/api/index" {
+					reqPath = parsed.Path
+				}
+			}
+			if strings.HasPrefix(reqPath, "/api/index") {
+				reqPath = strings.TrimPrefix(reqPath, "/api/index")
+				if reqPath == "" {
+					reqPath = "/"
+				}
+			}
+
 			if !strings.HasPrefix(reqPath, "/api/v3") {
 				if strings.HasPrefix(reqPath, "/v3") {
 					reqPath = "/api" + reqPath

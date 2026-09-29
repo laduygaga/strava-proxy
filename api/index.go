@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -32,6 +33,15 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 	if mux == nil {
 		http.Error(w, "server initialization failed", http.StatusInternalServerError)
 		return
+	}
+
+	if fwdURI := r.Header.Get("x-forwarded-uri"); fwdURI != "" {
+		if parsed, err := url.Parse(fwdURI); err == nil && parsed.Path != "" && parsed.Path != "/api/index" {
+			r.URL.Path = parsed.Path
+			if parsed.RawQuery != "" && r.URL.RawQuery == "" {
+				r.URL.RawQuery = parsed.RawQuery
+			}
+		}
 	}
 
 	mux.ServeHTTP(w, r)

@@ -162,3 +162,39 @@ func TestProxyHeaderRewrite(t *testing.T) {
 		t.Fatalf("expected response body to filter out name and id, got: %s", respBody)
 	}
 }
+
+func TestVercelRewrittenPath(t *testing.T) {
+	var receivedPath string
+
+	mockStrava := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer mockStrava.Close()
+
+	tempDir := t.TempDir()
+	store := proxy.NewTokenStore(filepath.Join(tempDir, "tokens.json"))
+	server, _ := proxy.NewServer(store)
+
+	proxyEngine := server.GetProxy()
+	origRewrite := proxyEngine.Rewrite
+	proxyEngine.Rewrite = func(r *httputil.ProxyRequest) {
+		origRewrite(r)
+		target, _ := url.Parse(mockStrava.URL)
+		r.SetURL(target)
+		r.Out.Host = target.Host
+	}
+
+	mux := server.SetupRoutes()
+
+	req := httptest.NewRequest("GET", "/api/index", nil)
+	req.Header.Set("x-forwarded-uri", "/athlete/activities")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if receivedPath != "/api/v3/athlete/activities" {
+		t.Fatalf("expected path '/api/v3/athlete/activities', got '%s'", receivedPath)
+	}
+}
