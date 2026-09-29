@@ -10,20 +10,22 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"strava-proxy/pkg/proxy"
 )
 
 func TestTokenStore(t *testing.T) {
 	tempDir := t.TempDir()
 	tokenFile := filepath.Join(tempDir, "test_tokens.json")
 
-	store := NewTokenStore(tokenFile)
+	store := proxy.NewTokenStore(tokenFile)
 
 	if token := store.GetAccessToken(); token != "" {
 		t.Fatalf("expected empty access token initially, got: %s", token)
 	}
 
 	testToken := "ca5c2d3096460b49c0caf893fd7002efb8384ef2"
-	err := store.UpdateConfig(TokenConfig{
+	err := store.UpdateConfig(proxy.TokenConfig{
 		AccessToken:  testToken,
 		RefreshToken: "ref_123",
 	})
@@ -35,13 +37,11 @@ func TestTokenStore(t *testing.T) {
 		t.Fatalf("expected token %s, got %s", testToken, token)
 	}
 
-	// Verify file was written
 	if _, err := os.Stat(tokenFile); os.IsNotExist(err) {
 		t.Fatalf("token file was not created at %s", tokenFile)
 	}
 
-	// Load in new store instance
-	newStore := NewTokenStore(tokenFile)
+	newStore := proxy.NewTokenStore(tokenFile)
 	if token := newStore.GetAccessToken(); token != testToken {
 		t.Fatalf("expected loaded token %s, got %s", testToken, token)
 	}
@@ -51,15 +51,14 @@ func TestServerEndpoints(t *testing.T) {
 	tempDir := t.TempDir()
 	tokenFile := filepath.Join(tempDir, "tokens.json")
 
-	store := NewTokenStore(tokenFile)
-	server, err := NewServer(store)
+	store := proxy.NewTokenStore(tokenFile)
+	server, err := proxy.NewServer(store)
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
 
 	mux := server.SetupRoutes()
 
-	// 1. Health check
 	req := httptest.NewRequest("GET", "/health", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -68,7 +67,6 @@ func TestServerEndpoints(t *testing.T) {
 		t.Fatalf("expected health status 200, got %d", rec.Code)
 	}
 
-	// 2. Update token
 	updateBody := `{"access_token": "ca5c2d3096460b49c0caf893fd7002efb8384ef2", "refresh_token": "refresh_abc"}`
 	req = httptest.NewRequest("POST", "/token", strings.NewReader(updateBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -79,7 +77,6 @@ func TestServerEndpoints(t *testing.T) {
 		t.Fatalf("expected update status 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 3. Get token
 	req = httptest.NewRequest("GET", "/token", nil)
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -116,18 +113,19 @@ func TestProxyHeaderRewrite(t *testing.T) {
 
 	tempDir := t.TempDir()
 	tokenFile := filepath.Join(tempDir, "tokens.json")
-	store := NewTokenStore(tokenFile)
+	store := proxy.NewTokenStore(tokenFile)
 
 	testToken := "ca5c2d3096460b49c0caf893fd7002efb8384ef2"
-	_ = store.UpdateConfig(TokenConfig{AccessToken: testToken})
+	_ = store.UpdateConfig(proxy.TokenConfig{AccessToken: testToken})
 
-	server, err := NewServer(store)
+	server, err := proxy.NewServer(store)
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
 
-	origRewrite := server.proxy.Rewrite
-	server.proxy.Rewrite = func(r *httputil.ProxyRequest) {
+	proxyEngine := server.GetProxy()
+	origRewrite := proxyEngine.Rewrite
+	proxyEngine.Rewrite = func(r *httputil.ProxyRequest) {
 		origRewrite(r)
 		target, _ := url.Parse(mockStrava.URL)
 		r.SetURL(target)
