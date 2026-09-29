@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -276,6 +277,8 @@ func NewServer(tokenStore *TokenStore) (*Server, error) {
 			}
 			r.Out.URL.RawQuery = query.Encode()
 
+			r.Out.Header.Set("Accept-Encoding", "identity")
+
 			accessToken := tokenStore.GetAccessToken()
 			if accessToken != "" {
 				r.Out.Header.Set("Authorization", "Bearer "+accessToken)
@@ -286,7 +289,17 @@ func NewServer(tokenStore *TokenStore) (*Server, error) {
 				return nil
 			}
 
-			bodyBytes, err := io.ReadAll(resp.Body)
+			var reader io.Reader = resp.Body
+			if resp.Header.Get("Content-Encoding") == "gzip" {
+				gzReader, err := gzip.NewReader(resp.Body)
+				if err == nil {
+					defer gzReader.Close()
+					reader = gzReader
+					resp.Header.Del("Content-Encoding")
+				}
+			}
+
+			bodyBytes, err := io.ReadAll(reader)
 			if err != nil {
 				return err
 			}

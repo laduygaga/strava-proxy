@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -209,5 +211,52 @@ func TestVercelRewrittenPath(t *testing.T) {
 	}
 	if strings.Contains(receivedQuery, "__proxy_path") {
 		t.Fatalf("expected __proxy_path to be removed from upstream query, got '%s'", receivedQuery)
+	}
+}
+
+func TestGzipResponseFiltering(t *testing.T) {
+	mockStrava := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Encoding", "gzip")
+		w.WriteHeader(http.StatusOK)
+
+		var buf bytes.Buffer
+		gzWriter := gzip.NewWriter(&buf)
+		_, _ = gzWriter.Write([]byte(`[{"id": 999, "name": "Gzipped Activity", "distance": 1234.5, "average_speed": 5.4}]`))
+		_ = gzWriter.Close()
+
+		_, _ = w.Write(buf.Bytes())
+	}))
+	defer mockStrava.Close()
+
+	tempDir := t.TempDir()
+	store := proxy.NewTokenStore(filepath.Join(tempDir, "tokens.json"))
+	server, _ := proxy.NewServer(store)
+
+	proxyEngine := server.GetProxy()
+	origRewrite := proxyEngine.Rewrite
+	proxyEngine.Rewrite = func(r *httputil.ProxyRequest) {
+		origRewrite(r)
+		target, _ := url.Parse(mockStrava.URL)
+		r.SetURL(target)
+		r.Out.Host = target.Host
+	}
+
+	mux := server.SetupRoutes()
+
+	req := httptest.NewRequest("GET", "/athlete/activities", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	respBody := rec.Body.String()
+	if !strings.Contains(respBody, "distance") || !strings.Contains(respBody, "average_speed") {
+		t.Fatalf("expected decompressed filtered JSON to contain distance and average_speed, got: %s", respBody)
+	}
+	if strings.Contains(respBody, "Gzipped Activity") || strings.Contains(respBody, "999") {
+		t.Fatalf("expected name and id to be filtered out from gzipped response, got: %s", respBody)
 	}
 }
