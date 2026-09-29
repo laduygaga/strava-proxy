@@ -1,0 +1,25 @@
+# Binaries
+strava-proxy
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Output / Log files
+*.out
+*.log
+server.log
+
+# Token / Secret files
+tokens.json
+.env
+
+# OS / Editor files
+.DS_Store
+.idea/
+.vscode/
+.omo/
