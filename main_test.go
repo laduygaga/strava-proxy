@@ -165,9 +165,11 @@ func TestProxyHeaderRewrite(t *testing.T) {
 
 func TestVercelRewrittenPath(t *testing.T) {
 	var receivedPath string
+	var receivedQuery string
 
 	mockStrava := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedPath = r.URL.Path
+		receivedQuery = r.URL.RawQuery
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`[]`))
@@ -189,12 +191,23 @@ func TestVercelRewrittenPath(t *testing.T) {
 
 	mux := server.SetupRoutes()
 
-	req := httptest.NewRequest("GET", "/api/index", nil)
-	req.Header.Set("x-forwarded-uri", "/athlete/activities")
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	req1 := httptest.NewRequest("GET", "/api/index", nil)
+	req1.Header.Set("x-forwarded-uri", "/athlete/activities")
+	rec1 := httptest.NewRecorder()
+	mux.ServeHTTP(rec1, req1)
 
 	if receivedPath != "/api/v3/athlete/activities" {
 		t.Fatalf("expected path '/api/v3/athlete/activities', got '%s'", receivedPath)
+	}
+
+	req2 := httptest.NewRequest("GET", "/api/index?__proxy_path=/athlete/activities", nil)
+	rec2 := httptest.NewRecorder()
+	mux.ServeHTTP(rec2, req2)
+
+	if receivedPath != "/api/v3/athlete/activities" {
+		t.Fatalf("expected path '/api/v3/athlete/activities', got '%s'", receivedPath)
+	}
+	if strings.Contains(receivedQuery, "__proxy_path") {
+		t.Fatalf("expected __proxy_path to be removed from upstream query, got '%s'", receivedQuery)
 	}
 }

@@ -240,11 +240,16 @@ func NewServer(tokenStore *TokenStore) (*Server, error) {
 			r.Out.Host = targetURL.Host
 
 			reqPath := r.In.URL.Path
-			if fwdURI := r.In.Header.Get("x-forwarded-uri"); fwdURI != "" {
+			if p := r.In.URL.Query().Get("__proxy_path"); p != "" {
+				reqPath = p
+			} else if invokePath := r.In.Header.Get("x-invoke-path"); invokePath != "" {
+				reqPath = invokePath
+			} else if fwdURI := r.In.Header.Get("x-forwarded-uri"); fwdURI != "" {
 				if parsed, err := url.Parse(fwdURI); err == nil && parsed.Path != "" && parsed.Path != "/api/index" {
 					reqPath = parsed.Path
 				}
 			}
+
 			if strings.HasPrefix(reqPath, "/api/index") {
 				reqPath = strings.TrimPrefix(reqPath, "/api/index")
 				if reqPath == "" {
@@ -262,6 +267,7 @@ func NewServer(tokenStore *TokenStore) (*Server, error) {
 			r.Out.URL.Path = reqPath
 
 			query := r.Out.URL.Query()
+			query.Del("__proxy_path")
 			if !query.Has("page") {
 				query.Set("page", "1")
 			}

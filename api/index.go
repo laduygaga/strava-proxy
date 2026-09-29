@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"strava-proxy/pkg/proxy"
@@ -35,13 +36,26 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if fwdURI := r.Header.Get("x-forwarded-uri"); fwdURI != "" {
+	query := r.URL.Query()
+	realPath := ""
+
+	if p := query.Get("__proxy_path"); p != "" {
+		realPath = p
+		query.Del("__proxy_path")
+		r.URL.RawQuery = query.Encode()
+	} else if invokePath := r.Header.Get("x-invoke-path"); invokePath != "" {
+		realPath = invokePath
+	} else if fwdURI := r.Header.Get("x-forwarded-uri"); fwdURI != "" {
 		if parsed, err := url.Parse(fwdURI); err == nil && parsed.Path != "" && parsed.Path != "/api/index" {
-			r.URL.Path = parsed.Path
-			if parsed.RawQuery != "" && r.URL.RawQuery == "" {
-				r.URL.RawQuery = parsed.RawQuery
-			}
+			realPath = parsed.Path
 		}
+	}
+
+	if realPath != "" && realPath != "/api/index" {
+		if !strings.HasPrefix(realPath, "/") {
+			realPath = "/" + realPath
+		}
+		r.URL.Path = realPath
 	}
 
 	mux.ServeHTTP(w, r)
